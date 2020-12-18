@@ -607,8 +607,11 @@ func (s *state) run() {
 	var coalesceTimer *time.Timer
 
 	for {
+		s.logger.Info("state.run looped again", "proxy", s.proxyID)
+
 		select {
 		case <-s.ctx.Done():
+			s.logger.Info("state.run has context canceled", "proxy", s.proxyID)
 			return
 		case u := <-s.ch:
 			if err := s.handleUpdate(u, &snap); err != nil {
@@ -620,6 +623,8 @@ func (s *state) run() {
 			}
 
 		case <-sendCh:
+			s.logger.Info("state.run is servicing a snapshot send operation", "proxy", s.proxyID)
+
 			// Make a deep copy of snap so we don't mutate any of the embedded structs
 			// etc on future updates.
 			snapCopy, err := snap.Clone()
@@ -630,7 +635,7 @@ func (s *state) run() {
 				)
 				continue
 			}
-			s.snapCh <- *snapCopy
+			s.snapCh <- *snapCopy // STUCK HERE?
 			// Allow the next change to trigger a send
 			coalesceTimer = nil
 
@@ -639,6 +644,9 @@ func (s *state) run() {
 			continue
 
 		case replyCh := <-s.reqCh:
+			s.logger.Info("state.run is servicing a request for current snapshot", "proxy", s.proxyID)
+
+			// NOTE(rb): why might something be blocked entering this body?
 			if !snap.Valid() {
 				s.logger.Info("[proxycfg] Proxy snapshot is not valid",
 					"proxyID", s.proxyID.ID)
@@ -654,6 +662,8 @@ func (s *state) run() {
 					"proxy", s.proxyID,
 					"error", err,
 				)
+				// NOTE(rb): this is probably a bug, but not OUR bug
+				// replyCh <- nil
 				continue
 			}
 
@@ -686,6 +696,12 @@ func (s *state) run() {
 }
 
 func (s *state) handleUpdate(u cache.UpdateEvent, snap *ConfigSnapshot) error {
+	s.logger.Debug("handleUpdate saw cache event",
+		"correlationID", u.CorrelationID,
+		"kind", s.kind,
+		"error", u.Err,
+	)
+
 	switch s.kind {
 	case structs.ServiceKindConnectProxy:
 		return s.handleUpdateConnectProxy(u, snap)
@@ -1601,9 +1617,15 @@ func (s *state) watchIngressLeafCert(snap *ConfigSnapshot) error {
 func (s *state) CurrentSnapshot() *ConfigSnapshot {
 	// Make a chan for the response to be sent on
 	ch := make(chan *ConfigSnapshot, 1)
+
+	s.logger.Info("state.CurrentSnapshot >>> is attempting to send to reqCh", "proxy", s.proxyID.String())
 	s.reqCh <- ch
+	s.logger.Info("state.CurrentSnapshot --- sent to reqCh waiting for response", "proxy", s.proxyID.String())
+
 	// Wait for the response
-	return <-ch
+	snap := <-ch
+	s.logger.Info("state.CurrentSnapshot <<< got response", "proxy", s.proxyID.String())
+	return snap
 }
 
 // Changed returns whether or not the passed NodeService has had any of the

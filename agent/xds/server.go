@@ -287,11 +287,26 @@ func (s *Server) process(stream ADSStream, reqCh <-chan *envoy.DiscoveryRequest)
 
 		case req, ok = <-reqCh:
 			{
-				typeURL := ""
+				var (
+					typeURL string
+					cluster string
+					id      string
+					proxyID structs.ServiceID
+				)
 				if req != nil {
 					typeURL = req.TypeUrl
+					if req.Node != nil {
+						cluster = req.Node.Cluster
+					}
+					if req.Node != nil {
+						id = req.Node.Id
+						proxyID = structs.NewServiceID(req.Node.Id, parseEnterpriseMeta(req.Node))
+					}
 				}
-				s.Logger.Info("[xDS] received discovery request", "typeUrl", typeURL, "ok", ok)
+				s.Logger.Info("[xDS] received discovery request", "typeUrl", typeURL, "ok", ok,
+					"cluster", cluster, "id", id,
+					"proxy", proxyID.String(),
+				)
 			}
 			if !ok {
 				// reqCh is closed when stream.Recv errors which is how we detect client
@@ -323,8 +338,7 @@ func (s *Server) process(stream ADSStream, reqCh <-chan *envoy.DiscoveryRequest)
 				if req.Node != nil {
 					id = req.Node.Id
 				}
-				s.Logger.Info("[xDS] preparing handler",
-					"typeUrl", req.TypeUrl, "cluster", cluster, "id", id)
+				s.Logger.Info("[xDS] preparing handler", "typeUrl", req.TypeUrl, "cluster", cluster, "id", id)
 				handler.Recv(req, node, proxyFeatures)
 			}
 		case cfgSnap = <-stateCh:
@@ -352,8 +366,7 @@ func (s *Server) process(stream ADSStream, reqCh <-chan *envoy.DiscoveryRequest)
 			// state machine.
 			defer watchCancel()
 
-			s.Logger.Info("[xDS] cfg manager watching proxy, pending initial config",
-				"proxyID", proxyID)
+			s.Logger.Info("[xDS] cfg manager watching proxy, pending initial config", "proxyID", proxyID)
 
 			// Now wait for the config so we can check ACL
 			state = statePendingInitialConfig
