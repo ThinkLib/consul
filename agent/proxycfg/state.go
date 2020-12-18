@@ -614,6 +614,8 @@ func (s *state) run() {
 			s.logger.Info("state.run has context canceled", "proxy", s.proxyID)
 			return
 		case u := <-s.ch:
+			s.logger.Info("state.run is servicing a handleUpdate operation", "proxy", s.proxyID)
+
 			if err := s.handleUpdate(u, &snap); err != nil {
 				s.logger.Error("watch error",
 					"id", u.CorrelationID,
@@ -676,6 +678,8 @@ func (s *state) run() {
 			continue
 		}
 
+		s.logger.Info("state.run is past the select{} and moving on to snap validation", "proxy", s.proxyID)
+
 		// Check if snap is complete enough to be a valid config to deliver to a
 		// proxy yet.
 		if snap.Valid() {
@@ -690,6 +694,8 @@ func (s *state) run() {
 					// loop above.
 					sendCh <- struct{}{}
 				})
+			} else {
+				s.logger.Info("state.run is skipping extending the coalesce timer", "proxy", s.proxyID)
 			}
 		}
 	}
